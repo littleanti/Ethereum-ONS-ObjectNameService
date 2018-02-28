@@ -39,7 +39,7 @@ contract Ownable {
  * @title Authorizable
  * @dev Allows to authorize access to certain function calls
  */
-contract Authorizable {
+contract Authorizable is Ownable {
 
   address[] authorizers;
   mapping(address => uint) authorizerIndex;
@@ -83,10 +83,18 @@ contract Authorizable {
    * @dev Function to add a new authorizer
    * @param _addr the address to add as a new authorizer.
    */
-  function addAuthorized(address _addr) external onlyAuthorized {
+  function addAuthorized(address _addr) external onlyOwner {
     authorizerIndex[_addr] = authorizers.length;
     authorizers.length++;
     authorizers[authorizers.length - 1] = _addr;
+  }
+  
+  /**
+   * @dev Function to delete a authorizer
+   * @param _addr the address to delete as a new authorizer.
+   */
+  function deleteAuthorized(address _addr) external onlyOwner {
+    authorizerIndex[_addr] = 0;
   }
 
 }
@@ -149,7 +157,7 @@ contract ONS is Ownable, Authorizable
 
     // GS1 code
     struct GS1code {
-        uint gs1CodePointer; // needed to delete a "GS1code"
+        uint gs1CodeListPointer; // needed to delete a "GS1code"
         // GS1code has many "ONSrecord"
         bytes32[] ONSrecordKeys;
         mapping(bytes32 => uint) ONSrecordKeyPointers;
@@ -163,12 +171,13 @@ contract ONS is Ownable, Authorizable
     {
         uint ONSrecordListPointer; // needed to delete a "ONSrecord"
         bytes32 GS1codeKey; // ONSrecord has exactly one "GS1code"    
-
+		bytes32 ServiceTypeKey; // ONSrecord has one "ServiceType"
+		
         // ONS record properties
         //uint32 order;
         //uint32 pref;
         uint8 flags;
-        string service;
+        bytes32 service;
         string regexp;
         //string replacement;
     }
@@ -177,35 +186,30 @@ contract ONS is Ownable, Authorizable
     bytes32[] public ONSrecordList;
 
     // Servicetype xml
-    struct documentation
-    {
-        // ONS Servicetype's documentation properties
-        string languageCode;
-        string location;
-    }
-
     struct ServiceType
     {
+		uint ServiceTypeListPointer; // needed to delete a "ServiceType"
+       
         // ONS ServiceType properties
-        string serviceTypeIdentifier;
-        bool abstrac;
-        string extends;
+        //bytes32 _serviceTypeKeyentifier;
+        bool abstrct;
+        bytes32 extends;
         string WSDL;
         string homepage;
-        mapping(uint8 => documentation) docs;
-        string[] obsoletes;
-        string[] obsoletedBy;
+        mapping(bytes32 => string) documentations;
+        bytes32[] obsoletes;
+        bytes32[] obsoletedBy;
     }
- 
-    //uint256 totalONSrecord = 0;
-    //ONSrecord[] ONSrecords;
-    //mapping(string => uint32[]) ONSrecordIndex;
-    //mapping(string => ServiceType) ServiceTypes;
+	
+	mapping(bytes32 => ServiceType) public ServiceTypes;
+	bytes32[] public ServiceTypeList;
     
-    event LogNewGS1code(address sender, bytes32 gs1CodeId);
-    event LogNewONSrecord(address sender, bytes32 onsRecordId, bytes32 gs1CodeId);
-    event LogGS1codeDeleted(address sender, bytes32 gs1CodeId);
-    event LogONSrecordDeleted(address sender, bytes32 onsRecordId);
+    event LogNewGS1code(address sender, bytes32 _gs1CodeKey);
+    event LogNewONSrecord(address sender, bytes32 _onsRecordKey, bytes32 _serviceTypeKey, bytes32 _gs1CodeKey);
+    event LogNewServiceType(address sender, bytes32 _serviceTypeKey);
+    event LogGS1codeDeleted(address sender, bytes32 _gs1CodeKey);
+    event LogONSrecordDeleted(address sender, bytes32 _onsRecordKey);
+    event LogServiceTypeDeleted(address sender, bytes32 _serviceTypeKey);
     
     /**
     * @dev Function to get the number of GS1codes
@@ -225,150 +229,260 @@ contract ONS is Ownable, Authorizable
         return ONSrecordList.length;
     }
     
-    /**
-    * @dev Function to check if gs1CodeId exist
-    * @param gs1CodeId the bytes32 to check if it exist.
-    * @return boolean flag if gs1CodeId exist.
+	/**
+    * @dev Function to get the number of ServiceTypes
+    * @return uint ServiceTypeCount.
     */
-    function isGS1code(bytes32 gs1CodeId) public view returns(bool isIndeed) 
+    function getServiceTypeCount() public view returns(uint ServiceTypeCount)
+    {
+        return ServiceTypeList.length;
+    }
+	
+    /**
+    * @dev Function to check if _gs1CodeKey exist
+    * @param _gs1CodeKey the bytes32 to check if it exist.
+    * @return boolean flag if _gs1CodeKey exist.
+    */
+    function isGS1code(bytes32 _gs1CodeKey) public view returns(bool isIndeed) 
     {
         if(GS1codeList.length==0) return false;
-        return GS1codeList[GS1codes[gs1CodeId].gs1CodePointer]==gs1CodeId;
+        return GS1codeList[GS1codes[_gs1CodeKey].gs1CodeListPointer]==_gs1CodeKey;
     }
     
     /**
-    * @dev Function to check if onsRecordId exist
-    * @param onsRecordId the bytes32 to check if it exist.
-    * @return boolean flag if onsRecordId exist.
+    * @dev Function to check if _onsRecordKey exist
+    * @param _onsRecordKey the bytes32 to check if it exist.
+    * @return boolean flag if _onsRecordKey exist.
     */
-    function isONSrecord(bytes32 onsRecordId) public view returns(bool isIndeed) 
+    function isONSrecord(bytes32 _onsRecordKey) public view returns(bool isIndeed) 
     {
         if(ONSrecordList.length==0) return false;
-        return ONSrecordList[ONSrecords[onsRecordId].ONSrecordListPointer]==onsRecordId;
+        return ONSrecordList[ONSrecords[_onsRecordKey].ONSrecordListPointer]==_onsRecordKey;
     }
-    
-    /**
-    * @dev Function to get the number of ONSrecords which depedn on gs1CodeId
-    * @param gs1CodeId the bytes32 to find the number of ONSrecords which depedn on gs1CodeId.
-    * @return uint the number of ONSrecords which depedn on gs1CodeId.
+	
+	/**
+    * @dev Function to check if _serviceTypeKey exist
+    * @param _serviceTypeKey the bytes32 to check if it exist.
+    * @return boolean flag if _serviceTypeKey exist.
     */
-    function getGS1codeONSrecordCount(bytes32 gs1CodeId) public view returns(uint onsRecordCount) 
+    function isServiceType(bytes32 _serviceTypeKey) public view returns(bool isIndeed) 
     {
-        if(!isGS1code(gs1CodeId)) throw;
-        return GS1codes[gs1CodeId].ONSrecordKeys.length;
+        if(ServiceTypeList.length==0) return false;
+        return ServiceTypeList[ServiceTypes[_serviceTypeKey].ServiceTypeListPointer]==_serviceTypeKey;
     }
     
     /**
-    * @dev Function to get ONSrecordKey using index of ONSrecords included in gs1CodeId
-    * @param gs1CodeId the bytes32 to get ONSrecordKey.
+    * @dev Function to get the number of ONSrecords which depend on _gs1CodeKey
+    * @param _gs1CodeKey the bytes32 to find the number of ONSrecords which depend on _gs1CodeKey.
+    * @return uint the number of ONSrecords which depend on _gs1CodeKey.
+    */
+    function getGS1codeONSrecordCount(bytes32 _gs1CodeKey) public view returns(uint onsRecordCount) 
+    {
+        if(!isGS1code(_gs1CodeKey)) throw;
+        return GS1codes[_gs1CodeKey].ONSrecordKeys.length;
+    }
+    
+    /**
+    * @dev Function to get ONSrecordKey using index of ONSrecords included in _gs1CodeKey
+    * @param _gs1CodeKey the bytes32 to get ONSrecordKey.
     * @param row the row to get ONSrecordKey.
     * @return bytes32 the ONSrecordKey.
     */
-    function getGS1codeONSrecordAtIndex(bytes32 gs1CodeId, uint row) public view returns(bytes32 ONSrecordKey) 
+    function getGS1codeONSrecordAtIndex(bytes32 _gs1CodeKey, uint row) public view returns(bytes32 ONSrecordKey) 
     {
-        if(!isGS1code(gs1CodeId)) throw;
-        return GS1codes[gs1CodeId].ONSrecordKeys[row];
+        if(!isGS1code(_gs1CodeKey)) throw;
+        return GS1codes[_gs1CodeKey].ONSrecordKeys[row];
     }
     
     /**
-    * @dev Function to check if an address is authorized
-    * @param onsRecordId the bytes32 to get ONSrecord properties.
-    * @return bytes32 onsRecordId, bytes32 gs1CodeId, uint8 flags, string service, string regexp.
+    * @dev Function to get ONSRecord properties using _onsRecordKey
+    * @param _onsRecordKey the bytes32 to get ONSrecord properties.
+    * @return bytes32 bytes32 _onsRecordKey_, bytes32 _gs1CodeKey_, uint8 _flags_, bytes32 _serviceTypeKey, string _regexp_.
     */
-    function getONSrecord(bytes32 onsRecordId) public view returns(bytes32 o, bytes32 g, uint8 f, string s, string r) 
+    function getONSrecord(bytes32 _onsRecordKey) public view returns(bytes32 _onsRecordKey_, bytes32 _gs1CodeKey_, uint8 _flags_, bytes32 _serviceTypeKey, string _regexp_) 
     {
-        bytes32 gs1CodeId = ONSrecords[onsRecordId].GS1codeKey;
-        uint8 flags = ONSrecords[onsRecordId].flags;
-        string service = ONSrecords[onsRecordId].service;
-        string regexp = ONSrecords[onsRecordId].regexp;
+        bytes32 _gs1CodeKey = ONSrecords[_onsRecordKey].GS1codeKey;
+        uint8 flags = ONSrecords[_onsRecordKey].flags;
+        bytes32 service = ONSrecords[_onsRecordKey].service;
+        string regexp = ONSrecords[_onsRecordKey].regexp;
         
-        return (onsRecordId, gs1CodeId, flags, service, regexp);
+        return (_onsRecordKey, _gs1CodeKey, flags, service, regexp);
+    }
+
+	/**
+    * @dev Function to get GS1codeKey using _onsRecordKey
+    * @param _onsRecordKey the bytes32 to get GS1codeKey.
+    * @return bytes32 the GS1codeKey.
+    */
+    function getONSrecordGS1code(bytes32 _onsRecordKey) public view returns(bytes32 GS1codeKey) 
+    {
+        if(!isONSrecord(_onsRecordKey)) throw;
+        return ONSrecords[_onsRecordKey].GS1codeKey;
+    }
+	
+	/**
+    * @dev Function to get ServiceTypeKey using _onsRecordKey
+    * @param _onsRecordKey the bytes32 to get ServiceTypeKey.
+    * @return bytes32 the ServiceTypeKey.
+    */
+    function getONSrecordServiceType(bytes32 _onsRecordKey) public view returns(bytes32 ServiceTypeKey) 
+    {
+        if(!isONSrecord(_onsRecordKey)) throw;
+        return ONSrecords[_onsRecordKey].ServiceTypeKey;
+    }
+	
+	/**
+    * @dev Function to get ServiceType properties using _serviceTypeKey
+    * @param _serviceTypeKey the bytes32 to get ServiceType properties.
+    * @param _languageCodeKey the bytes32 to get documentation.
+    * @return bytes32 _serviceTypeKey_, bool _abstrct_, bytes32 _extends_, string _WSDL_, string _homepage_, string _domentation_ (, bytes32 _obsoletes_, bytes32 _obsoletedBy_)
+    */
+    function getServiceType(bytes32 _serviceTypeKey, bytes32 _languageCodeKey) public view returns(bytes32 _serviceTypeKey_, bool _abstrct_, bytes32 _extends_, string _WSDL_, string _homepage_, string _domentation_/*, bytes32 _obsoletes_, bytes32 _obsoletedBy_*/) 
+    {
+		bool abstrct = ServiceTypes[_serviceTypeKey].abstrct;
+        bytes32 extends = ServiceTypes[_serviceTypeKey].extends;
+        string WSDL = ServiceTypes[_serviceTypeKey].WSDL;
+        string homepage = ServiceTypes[_serviceTypeKey].homepage;
+        string documentation = ServiceTypes[_serviceTypeKey].documentations[_languageCodeKey];
+        //bytes32 obsoleteLast = ServiceTypes[_serviceTypeKey].obsoletes[ServiceTypes[_serviceTypeKey].obsoletes.length-1];
+        //bytes32 obsoletedByLast = ServiceTypes[_serviceTypeKey].obsoletedBy[ServiceTypes[_serviceTypeKey].obsoletedBy.length-1];
+        
+        return (_serviceTypeKey, abstrct, extends, WSDL, homepage, documentation/*, obsoleteLast, obsoletedByLast*/);
     }
     
     /**
     * @dev Function to add new GS1code
-    * @param gs1CodeId the bytes32 to add new GS1code.
+    * @param _gs1CodeKey the bytes32 to add new GS1code.
     * @return boolean flag if GS1code is added.
     */
-    function addGS1code(bytes32 gs1CodeId) public returns(bool success) 
+    function addGS1code(bytes32 _gs1CodeKey) public returns(bool success) 
     {
-        if(isGS1code(gs1CodeId)) throw; // duplicate key prohibited
-        GS1codes[gs1CodeId].gs1CodePointer = GS1codeList.push(gs1CodeId)-1;
-        LogNewGS1code(msg.sender, gs1CodeId);
+        if(isGS1code(_gs1CodeKey)) throw; // duplicate key prohibited
+        GS1codes[_gs1CodeKey].gs1CodeListPointer = GS1codeList.push(_gs1CodeKey)-1;
+        LogNewGS1code(msg.sender, _gs1CodeKey);
         return true;
     }
     
     /**
     * @dev Function to add new ONSRecord
-    * @param onsRecordId the bytes32 to add new ONSRecord.
-    * @param gs1CodeId the bytes32 to bind ONSRecord to GS1code.
-    * @param f the uint8 to flags ('T' or 'U')
-    * @param s the string to service URI pointing ServiceType.
-    * @param r the string to regexp URI pointing service page.
+    * @param _onsRecordKey the bytes32 to add new ONSRecord.
+    * @param _gs1CodeKey the bytes32 to bind ONSRecord to GS1code.
+    * @param _flags the uint8 to flags ('T' or 'U')
+    * @param _serviceTypeKey the string to URI pointing ServiceType.
+    * @param _regexp the string to URI pointing service page.
     * @return boolean flag if ONSrecord is added.
     */
-    function addONSrecord(bytes32 onsRecordId, bytes32 gs1CodeId, uint8 f, string s, string r) public returns(bool success) 
+    function addONSrecord(bytes32 _onsRecordKey, bytes32 _gs1CodeKey, uint8 _flags, bytes32 _serviceTypeKey, string _regexp) public returns(bool success) 
     {
-        if(!isGS1code(gs1CodeId)) throw;
-        if(isONSrecord(onsRecordId)) throw; // duplicate key prohibited
-        ONSrecords[onsRecordId].ONSrecordListPointer = ONSrecordList.push(onsRecordId)-1;
-        ONSrecords[onsRecordId].GS1codeKey = gs1CodeId; 
+        if(!isGS1code(_gs1CodeKey)) throw;
+        if(isONSrecord(_onsRecordKey)) throw; // duplicate key prohibited
+        ONSrecords[_onsRecordKey].ONSrecordListPointer = ONSrecordList.push(_onsRecordKey)-1;
+        ONSrecords[_onsRecordKey].GS1codeKey = _gs1CodeKey; 
         
-        ONSrecords[onsRecordId].flags = f;
-        ONSrecords[onsRecordId].service = s;
-        ONSrecords[onsRecordId].regexp = r;
+        ONSrecords[_onsRecordKey].flags = _flags;
+        ONSrecords[_onsRecordKey].service = _serviceTypeKey; // This is _serviceTypeKey
+        ONSrecords[_onsRecordKey].regexp = _regexp;
         
         // We also maintain a list of "ONSrecord" that refer to the "GS1code", so ... 
-        GS1codes[gs1CodeId].ONSrecordKeyPointers[onsRecordId] = GS1codes[gs1CodeId].ONSrecordKeys.push(onsRecordId) - 1;
-        LogNewONSrecord(msg.sender, onsRecordId, gs1CodeId);
+        GS1codes[_gs1CodeKey].ONSrecordKeyPointers[_onsRecordKey] = GS1codes[_gs1CodeKey].ONSrecordKeys.push(_onsRecordKey) - 1;
+        LogNewONSrecord(msg.sender, _onsRecordKey, _serviceTypeKey, _gs1CodeKey);
+        return true;
+    }
+	
+	/**
+    * @dev Function to add new ServiceType
+    * @param _serviceTypeKey the bytes32 to add new serviceType.
+    * @param _abstrct the boolean to notice that serviceType is abstrct or not.
+    * @param _extends the bytes32 to point extends serviceType.
+    * @param _WSDL the string to URI of WSDL.
+    * @param _homepage the string to URI pointing serviceType homepage.
+    * @param _languageCodeKey the bytes32 to string of languageCode.
+    * @param _location the string to point URI of documentation location.
+    * @param _obsoletes the array of bytes32 to point obsoletes serviceType.
+    * @param _obsoletedBy the array of bytes32 to point obsoleteBy serviceTypes.    
+    * @return boolean flag if ONSrecord is added.
+    */
+    function addServiceType(bytes32 _serviceTypeKey, bool _abstrct, bytes32 _extends, string _WSDL, string _homepage, bytes32 _languageCodeKey, string _location, bytes32 _obsoletes, bytes32 _obsoletedBy) public returns(bool success) 
+    {
+        if(!isServiceType(_serviceTypeKey)) throw; // duplicate key prohibited
+        ServiceTypes[_serviceTypeKey].ServiceTypeListPointer = ServiceTypeList.push(_serviceTypeKey)-1;
+		
+		ServiceTypes[_serviceTypeKey].abstrct = _abstrct;
+		ServiceTypes[_serviceTypeKey].extends = _extends;
+		ServiceTypes[_serviceTypeKey].WSDL = _WSDL;
+		ServiceTypes[_serviceTypeKey].homepage = _homepage;
+		ServiceTypes[_serviceTypeKey].documentations[_languageCodeKey] = _location;
+		ServiceTypes[_serviceTypeKey].obsoletes[ServiceTypes[_serviceTypeKey].obsoletes.length] = _obsoletes;
+		ServiceTypes[_serviceTypeKey].obsoletedBy[ServiceTypes[_serviceTypeKey].obsoletedBy.length] = _obsoletedBy;
+       
+        LogNewServiceType(msg.sender, _serviceTypeKey);
         return true;
     }
 
     /**
     * @dev Function to delete GS1code
-    * @param gs1CodeId the bytes32 to delete GS1code. 
+    * @param _gs1CodeKey the bytes32 to delete GS1code. 
     * @return boolean flag if GS1code is deleted.
     */
-    function deleteGS1code(bytes32 gs1CodeId) onlyOwner returns(bool succes) 
+    function deleteGS1code(bytes32 _gs1CodeKey) onlyOwner returns(bool succes) 
     {
-        if(!isGS1code(gs1CodeId)) throw;
+        if(!isGS1code(_gs1CodeKey)) throw;
         
         // the following would break referential integrity
-        if(GS1codes[gs1CodeId].ONSrecordKeys.length > 0) throw; 
+        if(GS1codes[_gs1CodeKey].ONSrecordKeys.length > 0) throw; 
         
-        uint rowToDelete = GS1codes[gs1CodeId].gs1CodePointer;
+        uint rowToDelete = GS1codes[_gs1CodeKey].gs1CodeListPointer;
         bytes32 keyToMove = GS1codeList[GS1codeList.length-1];
         GS1codeList[rowToDelete] = keyToMove;
-        GS1codes[keyToMove].gs1CodePointer = rowToDelete;
+        GS1codes[keyToMove].gs1CodeListPointer = rowToDelete;
         GS1codeList.length--;
-        LogGS1codeDeleted(msg.sender, gs1CodeId);
+        LogGS1codeDeleted(msg.sender, _gs1CodeKey);
         return true;
     }    
 
     /**
     * @dev Function to delete ONSRecord
-    * @param onsRecordId the bytes32 to delete ONSRecord. 
+    * @param _onsRecordKey the bytes32 to delete ONSRecord. 
     * @return boolean flag if ONSRecord is deleted.
     */
-    function deleteONSrecord(bytes32 onsRecordId) onlyOwner returns(bool success) 
+    function deleteONSrecord(bytes32 _onsRecordKey) onlyOwner returns(bool success) 
     {
-        if(!isONSrecord(onsRecordId)) throw; // non-existant key
+        if(!isONSrecord(_onsRecordKey)) throw; // non-existant key
         
         // delete from the Many table
-        uint rowToDelete = ONSrecords[onsRecordId].ONSrecordListPointer;
+        uint rowToDelete = ONSrecords[_onsRecordKey].ONSrecordListPointer;
         bytes32 keyToMove = ONSrecordList[ONSrecordList.length-1];
         ONSrecordList[rowToDelete] = keyToMove;
-        ONSrecords[onsRecordId].ONSrecordListPointer = rowToDelete;
+        ONSrecords[_onsRecordKey].ONSrecordListPointer = rowToDelete;
         ONSrecordList.length--;
         
         // we ALSO have to delete this key from the list in the GS1code
-        bytes32 gs1CodeId = ONSrecords[onsRecordId].GS1codeKey; 
-        rowToDelete = GS1codes[gs1CodeId].ONSrecordKeyPointers[onsRecordId];
-        keyToMove = GS1codes[gs1CodeId].ONSrecordKeys[GS1codes[gs1CodeId].ONSrecordKeys.length-1];
-        GS1codes[gs1CodeId].ONSrecordKeys[rowToDelete] = keyToMove;
-        GS1codes[gs1CodeId].ONSrecordKeyPointers[keyToMove] = rowToDelete;
-        GS1codes[gs1CodeId].ONSrecordKeys.length--;
-        LogONSrecordDeleted(msg.sender, onsRecordId);
+        bytes32 _gs1CodeKey = ONSrecords[_onsRecordKey].GS1codeKey; 
+        rowToDelete = GS1codes[_gs1CodeKey].ONSrecordKeyPointers[_onsRecordKey];
+        keyToMove = GS1codes[_gs1CodeKey].ONSrecordKeys[GS1codes[_gs1CodeKey].ONSrecordKeys.length-1];
+        GS1codes[_gs1CodeKey].ONSrecordKeys[rowToDelete] = keyToMove;
+        GS1codes[_gs1CodeKey].ONSrecordKeyPointers[keyToMove] = rowToDelete;
+        GS1codes[_gs1CodeKey].ONSrecordKeys.length--;
+        LogONSrecordDeleted(msg.sender, _onsRecordKey);
+        return true;
+    }
+	
+	/**
+    * @dev Function to delete ServiceType
+    * @param _serviceTypeKey the bytes32 to delete ServiceType. 
+    * @return boolean flag if ServiceType is deleted.
+    */
+    function deleteServiceType(bytes32 _serviceTypeKey) onlyOwner returns(bool succes) 
+    {
+		// this function will be never used
+        if(isServiceType(_serviceTypeKey)) throw;
+         
+        uint rowToDelete = ServiceTypes[_serviceTypeKey].ServiceTypeListPointer;
+        bytes32 keyToMove = ServiceTypeList[ServiceTypeList.length-1];
+        ServiceTypeList[rowToDelete] = keyToMove;
+        ServiceTypes[keyToMove].ServiceTypeListPointer = rowToDelete;
+        ServiceTypeList.length--;
+        LogServiceTypeDeleted(msg.sender, _serviceTypeKey);
         return true;
     }
     
